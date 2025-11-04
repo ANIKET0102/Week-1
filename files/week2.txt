@@ -1,0 +1,99 @@
+Phase 3: Model Training and Evaluation
+Cell 5: Data Splitting (Preparation for Fair Evaluation)
+This step divides your carefully cleaned data (X and y) into three separate sets: Training, Testing, and Validation (implicitly handled by the split ratio). This prevents data leakage and ensures your model's accuracy check is honest.
+
+Python
+
+# --- Cell 5: Data Splitting ---
+
+from sklearn.model_selection import train_test_split
+
+# NOTE: X and y must be loaded from the previous steps (Cell 4 output).
+# You may need to reload them if you started a new session:
+# X = pd.read_csv('data/X_features.csv')
+# y = pd.read_csv('data/y_target.csv')['RICE YIELD (Kg per ha)']
+
+# Split the data: 80% for Training/Validation, 20% for Final Testing
+# The 'test_size=0.2' means 20% of the data is set aside for final evaluation.
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+print(f"Training Features Shape: {X_train.shape}")
+print(f"Testing Features Shape: {X_test.shape}")
+# The test set (X_test, y_test) will NOT be touched again until the very end.
+Cell 6: Feature Scaling (Standardization) and Saving the Scaler
+Scaling is crucial to ensure that no single numerical column (like crop area in hectares) accidentally dominates the model due to its large range of values. We fit the scaler ONLY on the training data to prevent leakage.
+
+Python
+
+# --- Cell 6: Feature Scaling and Saving Scaler ---
+
+from sklearn.preprocessing import StandardScaler
+import joblib
+
+# Identify the numerical columns to be scaled.
+# These are the ones that are NOT the binary (0/1) One-Hot Encoded state columns.
+numerical_cols_to_scale = ['Year', 'WHEAT AREA (1000 ha)', 'MAIZE AREA (1000 ha)', 'SUGARCANE AREA (1000 ha)']
+
+# 1. Initialize the scaler
+scaler = StandardScaler()
+
+# 2. FIT the scaler ONLY on the Training data (X_train) and then TRANSFORM it.
+# 'fit' calculates the mean and standard deviation; 'transform' applies it.
+X_train[numerical_cols_to_scale] = scaler.fit_transform(X_train[numerical_cols_to_scale])
+
+# 3. TRANSFORM the Test data (X_test) using the scaler *fitted* on X_train.
+# We must NOT fit on the test data.
+X_test[numerical_cols_to_scale] = scaler.transform(X_test[numerical_cols_to_scale])
+
+# 4. Save the fitted scaler (CRITICAL for deployment!)
+# The deployed app needs this exact scaler to process NEW user input correctly.
+joblib.dump(scaler, 'models/scaler.pkl')
+
+print("Scaling complete. Scaler saved to 'models/scaler.pkl'.")
+print("First 5 rows of SCALED Training Data:")
+print(X_train.head())
+Cell 7: Model Training (Building the Predictor)
+We choose XGBoost (Extreme Gradient Boosting) because it's highly effective for complex regression tasks on structured data like this.
+
+Python
+
+# --- Cell 7: Train the XGBoost Regressor ---
+
+from xgboost import XGBRegressor
+
+# 1. Initialize the model (setting basic hyperparameter values)
+# n_estimators: The number of boosting rounds/trees.
+# learning_rate: Controls the step size shrinkage.
+xgb_model = XGBRegressor(n_estimators=500, learning_rate=0.05, random_state=42, n_jobs=-1)
+
+# 2. Train the model using the scaled Training data (X_train, y_train)
+# The model learns patterns between the scaled features and the rice yield.
+xgb_model.fit(X_train, y_train)
+
+print("XGBoost Model Training Complete.")
+Cell 8: Evaluation and Saving the Final Model
+We use the reserved Test Set (X_test, y_test) to measure the model's performance on unseen data.
+
+Python
+
+# --- Cell 8: Evaluate and Save the Final Model ---
+
+from sklearn.metrics import mean_squared_error
+import numpy as np
+import joblib
+
+# 1. Make predictions on the unseen Test set
+y_pred = xgb_model.predict(X_test)
+
+# 2. Calculate the performance metric: Root Mean Squared Error (RMSE)
+# RMSE measures the average magnitude of the errors in the units of the target variable (Kg per ha).
+rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+
+print(f"Root Mean Squared Error (RMSE) on Test Set: {rmse:.2f} Kg per ha")
+# NOTE: A lower RMSE is better, as it means the prediction errors are smaller.
+
+# 3. Save the trained model to the 'models' folder
+# Saving ensures you don't have to retrain the model every time you want to use it.
+joblib.dump(xgb_model, 'models/final_yield_model.pkl')
+
+print("\nFinal trained XGBoost model saved to 'models/final_yield_model.pkl'.")
